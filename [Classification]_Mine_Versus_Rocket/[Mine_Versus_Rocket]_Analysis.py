@@ -124,3 +124,112 @@ pyplot.show()
 # because differing scaling raw data might have a negatively impact on the skill of some algorithms
 # the data is transformed with mean value of zero and std with 1
 # apply pipeline to aviod data leakage when transform the data
+
+pipeline = []
+pipeline.append(("ScaledLR",Pipeline([("Scaler",StandardScaler()),("LR",LogisticRegression())])))
+pipeline.append(("ScaledLDA",Pipeline([("Scaler",StandardScaler()),("LDA",LinearDiscriminantAnalysis())])))
+pipeline.append(("ScaledKNN",Pipeline([("Scaler",StandardScaler()),("KNN",KNeighborsClassifier())])))
+pipeline.append(("ScaledCART",Pipeline([("Scaler",StandardScaler()),("CART",DecisionTreeClassifier())])))
+pipeline.append(("ScaledNB",Pipeline([("Scaler",StandardScaler()),("NB",GaussianNB())])))
+pipeline.append(("ScaledSVM",Pipeline([("Scaler",StandardScaler()),("SVC",SVC())])))
+
+results=[]
+names=[]
+
+for name, model in pipeline:
+	kfold=KFold(n_splits=number_fold,random_state=seed)
+	cv_results=cross_val_score(model,X_train,Y_train,cv=kfold,scoring=scoring)
+	results.append(cv_results)
+	names.append(name)
+	msg="%s %f (%f)"%(name,cv_results.mean(),cv_results.std())
+	print(msg)
+
+# plot boxplot to compare algorithms again
+fig = pyplot.figure()
+fig.suptitle("Scaled Algorithm Comparison")
+ax = fig.add_subplot(111)
+pyplot.boxplot(results)
+ax.set_xticklabels(names)
+pyplot.show()
+
+# Algorithm tuning - KNN
+# try a range of different number of neighbors(k) from 1 to 21
+# each k is evaluated by using 10-fold cross validation on training standardized data
+
+scaler=StandardScaler().fit(X_train)
+rescaledX=scaler.transform(X_train)
+neighbors=[1,3,5,7,9,11,13,15,17,19,21]
+param_grid=dict(n_neighbors=neighbors)
+model=KNeighborsClassifier()
+grid=GridSearchCV(estimator=model,param_grid=param_grid,scoring=scoring,cv=kfold)
+grid_result=grid.fit(rescaledX,Y_train)
+print("Best: %f using %s"%(grid_result.best_score_,grid_result.best_params_))
+means=grid_result.cv_results_["mean_test_score"]
+stds=grid_result.cv_results_["std_test_score"]
+params=grid_result.cv_results_["params"]
+for mean, stdev, param in zip(means,stds,params):
+	print("%f (%f) with %r"%(mean,stdev,param))
+
+# Algorithm tuning -SVM
+# in this section, 2 parameters will be tuned manually. Namely, c value and types of kernels
+# c value = how much to relax the margin
+scaler=StandardScaler().fit(X_train)
+rescaledX=scaler.transform(X_train)
+c_values=[0.1,0.3,0.5,0.7,0.9,1.0,1.3,1.5,1.7,1.9,2.0]
+kernel_values=["linear","poly","rbf","sigmoid"]
+param_grid=dict(C=c_values,kernel=kernel_values)
+model=SVC()
+grid=GridSearchCV(estimator=model,param_grid=param_grid,scoring=scoring,cv=kfold)
+grid_result=grid.fit(rescaledX,Y_train)
+print("Best: %f using %s"%(grid_result.best_score_,grid_result.best_params_))
+
+means=grid_result.cv_results_["mean_test_score"]
+stds=grid_result.cv_results_["std_test_score"]
+params=grid_result.cv_results_["params"]
+
+for mean,stdev,param in zip(means,stds,params):
+	print("%f (%f) with %r"%(mean,stdev,param))
+
+# ensemble methods
+# boosting methods: AdaBoost(AB), Gradient Boosting(GBM)
+# bagging methods: RandomForest(RF), Extra Tree(ET)
+
+ensembles=[]
+ensembles.append(("AB",AdaBoostClassifier()))
+ensembles.append(("GBM",GradientBoostingClassifier()))
+ensembles.append(("RF",RandomForestClassifier()))
+ensembles.append(("ET",ExtraTreesClassifier()))
+
+results=[]
+names=[]
+
+for name, model in ensembles:
+	cv_results=cross_val_score(model,X_train,Y_train,cv=kfold,scoring=scoring)
+	results.append(cv_results)
+	names.append(name)
+	msg="%s: %f (%f)"%(name,cv_results.mean(),cv_results.std())
+	print(msg)
+
+# compare algorithms
+fig=pyplot.figure()
+fig.suptitle("Ensemble Algorithm Comparison")
+ax = fig.add_subplot(111)
+pyplot.boxplot(results)
+ax.set_xticklabels(names)
+pyplot.show()
+
+# finalize the model
+# apply SVM to the training set and make predictions for validation data to confirm the finding
+
+# prepare the model
+scaler = StandardScaler().fit(X_train)
+rescaledX = scaler.transform(X_train)
+model=SVC(C=1.5)
+model.fit(rescaledX,Y_train)
+
+# estimate accuracy on validation data
+rescaledValidationX=scaler.transform(X_validation)
+predictions=model.predict(rescaledValidationX)
+print(accuracy_score(Y_validation,predictions))
+print(confusion_matrix(Y_validation,predictions))
+print(classification_report(Y_validation,predictions))
