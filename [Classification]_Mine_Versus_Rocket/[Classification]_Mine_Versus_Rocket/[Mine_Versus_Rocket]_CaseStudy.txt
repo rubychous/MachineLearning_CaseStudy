@@ -1,0 +1,3 @@
+# Classification_ML_CaseStudy
+
+This project is about to predict metal or rock objects based on the sonar return signal. The data was provided by UCI Machine Learning Repository (https://archive.ics.uci.edu/ml/datasets/Connectionist+Bench+(Sonar,+Mines+vs.+Rocks)
