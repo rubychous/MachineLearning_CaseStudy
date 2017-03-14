@@ -8,6 +8,7 @@
 
 # load libraries
 import re
+import operator
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -43,7 +44,7 @@ test_data.isnull().sum().sort_values(ascending=False)
 #		filling those missing value would be applied instead of getting rid of them
 
 # join both training and testing data together in order to fill the missing value
-combine=pd.concat([train_data,test_data],axis=0)
+combine=pd.concat([train_data,test_data],axis=0) # axis = 0 indicates row
 
 combine["Embarked"].unique()
 combine["Embarked"].isin(["S"]).sum() 
@@ -59,26 +60,55 @@ combine["Fare"].fillna(combine["Fare"].median(),inplace=True)
 
 # create a new column
 # using regular expression to search for a title
-combine['Title']=combine["Name"].apply(lambda x :re.search('([A-Za-z]+)\.', x).group(1))
+combine["Title"]=combine["Name"].apply(lambda x :re.search("([A-Za-z]+)\.", x).group(1))
 # followed by assigning title id to different titles
 # assign id 10 for royality
 # assign id 7 for officer
 # assign id 8 for french
-combine['Title']=combine['Title'].replace(['Dona','Countess','Lady','Jonkheer'],'10')
-combine['Title']=combine['Title'].replace(['Mlle','Mme'],'8')
-combine['Title']=combine['Title'].replace(['Major','Col','Don','Sir','Capt'],'7')
-combine['Title']=combine['Title'].replace(['Rev'],'6')
-combine['Title']=combine['Title'].replace(['Dr'],'5')
-combine['Title']=combine['Title'].replace(['Master'],'4')
-combine['Title']=combine['Title'].replace(['Mrs'],'3')
-combine['Title']=combine['Title'].replace(['Miss','Ms'],'2')
-combine['Title']=combine['Title'].replace(['Mr'],'1')
+combine["Title"]=combine["Title"].replace(["Dona","Countess","Lady","Jonkheer"],"10")
+combine["Title"]=combine["Title"].replace(["Mlle","Mme"],"8")
+combine["Title"]=combine["Title"].replace(["Major","Col","Don","Sir","Capt"],"7")
+combine["Title"]=combine["Title"].replace(["Rev"],"6")
+combine["Title"]=combine["Title"].replace(["Dr"],"5")
+combine["Title"]=combine["Title"].replace(["Master"],"4")
+combine["Title"]=combine["Title"].replace(["Mrs"],"3")
+combine["Title"]=combine["Title"].replace(["Miss","Ms"],"2")
+combine["Title"]=combine["Title"].replace(["Mr"],"1")
 
 # clean the cabin info
 # fill in 0 for missing value
-# if there is no missing value, assign codes for each distinct Deck ie.A=1 B=2, etc.
-combine['Cabin']=combine['Cabin'].fillna('0')
-combine['Cabin']=combine['Cabin'].apply(lambda x: x[0])
-combine['CabinCat'] = pd.Categorical.from_array(combine['Cabin']).codes
+# if there is no missing value, assign dummy codes for each distinct Deck ie.A=1 B=2, etc.
+combine["Cabin"]=combine["Cabin"].fillna("0")
+combine["Cabin"]=combine["Cabin"].apply(lambda x: x[0])
+combine["CabinCat"]=pd.Categorical.from_array(combine["Cabin"]).codes
 
+# assign dummy codes for embarked column as well
+combine["EmbarkedCat"]=pd.Categorical.from_array(combine["Embarked"]).codes
 
+# clean ticket info
+def CleanTickets(ticket):
+	ticket=ticket.replace("/","").replace(".","")
+	if (len(ticket)>0) and (ticket.isdigit()==False):
+		return ticket[0]
+	else:
+		return "XXXX"
+
+combine["Ticket"]=combine["Ticket"].map(CleanTickets)
+combine["TicketCat"]=pd.Categorical.from_array(combine["Ticket"]).codes
+
+# assign dummy code to sex and move survive to the last column
+whole_data=pd.concat([combine.drop(["Survived"],axis=1),pd.get_dummies(combine["Sex"],prefix="Sex"),combine["Survived"]],axis=1)
+
+# feature engineering
+# find the size of family for individual passenger
+whole_data["FamilySize"]=whole_data["SibSp"]+whole_data["Parch"]
+
+# find the length of name for individual passenger
+whole_data["NameLength"]=whole_data["Name"].apply(lambda x: len(x))
+
+# family mapping
+# do not understand that part
+# and family size
+
+# assign the age of child to 14
+child_age = 14
