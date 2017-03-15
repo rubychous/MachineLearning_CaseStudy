@@ -24,10 +24,15 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.naive_bayes import GaussianNB
 from sklearn.svm import SVC
 from sklearn.ensemble import AdaBoostClassifier, GradientBoostingClassifier, RandomForestClassifier, ExtraTreesClassifier
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, ExtraTreesRegressor, AdaBoostRegressor
+from sklearn.metrics import mean_squared_error
+
+import warnings
+warnings.filterwarnings('ignore')
 
 # load the dataset
-train_data=pd.read_csv("C:/Users/LUYI/Downloads/[Kaggle]_Titanic/train.csv")
-test_data=pd.read_csv("C:/Users/LUYI/Downloads/[Kaggle]_Titanic/test.csv")
+train_data=pd.read_csv("C:/Users/LUYI/Downloads/[Kaggle]_Titanic/train.csv",dtype={"Age": np.float64})
+test_data=pd.read_csv("C:/Users/LUYI/Downloads/[Kaggle]_Titanic/test.csv",dtype={"Age": np.float64})
 
 # summarize the data (descriptive statistics and visualization)
 train_data.head(3)
@@ -106,9 +111,127 @@ whole_data["FamilySize"]=whole_data["SibSp"]+whole_data["Parch"]
 # find the length of name for individual passenger
 whole_data["NameLength"]=whole_data["Name"].apply(lambda x: len(x))
 
-# family mapping
-# do not understand that part
-# and family size
 
+family_id_mapping = {}
+def get_family_id(row):
+    #get last surname from name col
+    last_name = row["Name"].split(",")[0]
+    #Assign family_id in following format last_namefamilysize
+    family_id = "{0}{1}".format(last_name, row["FamilySize"])
+    #if the above found family id is new then enter loop
+    if family_id not in family_id_mapping:
+        #for the very first iteration of loop
+        if len(family_id_mapping) == 0:
+            current_id = 1
+        #from second iteration    
+        else:
+            #get the highest id value found in family_id_mapping and add one to it to get the new id
+            #example if family_id_mapping has {1,3,4,2} pick 4 then 4+1=5 is current_id
+            current_id = (max(family_id_mapping.items(), key=operator.itemgetter(1))[1] + 1)
+        family_id_mapping[family_id] = current_id  # in this step, it assigns value to key. It is how it works in dict
+    return family_id_mapping[family_id]
+
+#get all family id's
+family_ids = whole_data.apply(get_family_id, axis=1)
+#to minimize the family id's group small families into one and assign -1 as their id
+family_ids[whole_data["FamilySize"] < 3] = -1
+whole_data["FamilyId"] = family_ids
+
+
+# classify passengers based on age
 # assign the age of child to 14
 child_age = 14
+
+def get_person(passenger):
+	age, sex=passenger
+	if age<child_age:
+		return "child"
+	elif (sex=="female"):
+		return "female_adult"
+	else:
+		return "male_adult"
+
+# use get_person function and store the return value to the new created person column
+# convert 3 different types of classification result to dummy variable
+# notice the difference between pd.Categorical.codes and get_dummies
+whole_data = pd.concat([whole_data, pd.DataFrame(whole_data[["Age", "Sex"]].apply(get_person, axis=1), columns=["person"])],axis=1)
+dummies = pd.get_dummies(whole_data["person"])
+whole_data = pd.concat([whole_data,dummies],axis=1)
+
+# add new feature for surname
+whole_data["surname"] = whole_data["Name"].apply(lambda x: x.split(",")[0].lower())
+
+# find family names of females who perished
+perishing_female_surnames = list(set(whole_data[(whole_data["female_adult"] == 1.0) & (whole_data["Survived"] == 0.0) &((whole_data["Parch"] > 0) | (whole_data["SibSp"] > 0))]["surname"].values))
+
+# find perishing mothers
+def perishing_mother(passenger):
+	surname, Pclass, person =passenger
+	if (surname in perishing_female_surnames):
+		return 1.0
+	else:
+		return 0.0
+
+whole_data["perishing_mother"] = whole_data[["surname", "Pclass", "person"]].apply(perishing_mother, axis=1)
+
+# find family name of males who survive
+perishing_male_surnames = list(set(whole_data[(whole_data["male_adult"] == 1.0) & (whole_data["Survived"] == 1.0) &((whole_data["Parch"] > 0) | (whole_data["SibSp"] > 0))]["surname"].values))
+
+# find survival fathers
+def survival_father(passenger):
+	surname, Pclass, person = passenger
+	if (surname in perishing_male_surnames):
+		return 1.0
+	else:
+		return 0.0
+
+whole_data["survival_father"] = whole_data[["surname", "Pclass", "person"]].apply(survival_father, axis=1)
+
+# find missing age by using Extra Tree Regressor
+classers = ["Fare","Parch","Pclass","SibSp","Title","CabinCat","Sex_female","Sex_male", "EmbarkedCat", "FamilySize", "NameLength","FamilyId"]
+
+# fill in missing value(age)
+X_train_age=whole_data.ix[whole_data["Age"].notnull(),classers]
+Y_train_age=whole_data.ix[whole_data["Age"].notnull(),"Age"]
+X_test_age=whole_data.ix[whole_data["Age"].isnull(),classers]
+
+
+
+# use ensemble method: ElasticNet to fill age 
+# not tune yet
+scaler = StandardScaler().fit(X_train_age)
+rescaledX = scaler.transform(X_train_age)
+model=ElasticNet()
+model.fit(X_train_age,Y_train_age)
+predictions = model.predict(X_test_age)
+whole_data.ix[whole_data["Age"].isnull(),"Age"] = predictions
+
+
+# build model
+model_dummys = ['Age','male_adult','female_adult', 'child','perishing_mother','survival_father','Fare','Parch','Pclass','SibSp','Title','CabinCat','Sex_female','Sex_male', 'EmbarkedCat','FamilySize', 'NameLength', 'FamilyId']
+
+# split data
+X_data = whole_data.iloc[:891,:]
+X_train = X_data.loc[:,model_dummys]
+
+Y_data = whole_data.iloc[:891,:]
+Y_train = Y_data.loc[:,"Survived"]
+
+X_t_data = whole_data.iloc[891:,:]
+X_test = X_t_data.loc[:,model_dummys]
+
+
+scaler = StandardScaler().fit(X_train)
+rescaledX = scaler.transform(X_train)
+model=SVC(C=0.1,kernel='linear')
+model.fit(rescaledX,Y_train)
+predictions = model.predict(Y_test)
+
+predictions = [str(int(x)) for x in predictions]
+submission = pd.DataFrame()
+submission['PassengerId'] = X_t_data.PassengerId
+submission['Survived'] = predictions
+submission.set_index(['PassengerId'],inplace=True)
+submission.head(3)
+submission.to_csv('titanic_submission.csv')  
+
