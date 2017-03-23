@@ -110,3 +110,35 @@ def topNRecommendation(user,n):
 	topRecommendationTitles=(movieInfoData.loc[movieInfoData.itemId.isin(topRecommendations.index)])
 	return list(topRecommendationTitles.title)
 
+# give the recommendations for a user
+# to identify what sorts of factors influence a user's rating
+# the factors are identified by decomposing the user item rating matrix into 
+# user-factor matrix and item-factor matrix
+def matrixFactorization(R, K, steps=10, gamma=0.001,lamda=0.02):
+    N=len(R.index)# Number of users
+    M=len(R.columns) # Number of items 
+    P=pd.DataFrame(np.random.rand(N,K),index=R.index)
+    
+    Q=pd.DataFrame(np.random.rand(M,K),index=R.columns)
+     
+    for step in xrange(steps):
+        for i in R.index:
+            for j in R.columns:
+                if R.loc[i,j]>0: 
+                    eij=R.loc[i,j]-np.dot(P.loc[i],Q.loc[j])
+                    P.loc[i]=P.loc[i]+gamma*(eij*Q.loc[j]-lamda*P.loc[i])
+                    Q.loc[j]=Q.loc[j]+gamma*(eij*P.loc[i]-lamda*Q.loc[j])
+        e=0
+        for i in R.index:
+            for j in R.columns:
+                if R.loc[i,j]>0:
+                    #Sum of squares of the errors in the rating
+                    e= e + pow(R.loc[i,j]-np.dot(P.loc[i],Q.loc[j]),2)+lamda*(pow(np.linalg.norm(P.loc[i]),2)+pow(np.linalg.norm(Q.loc[j]),2))
+        if e<0.001:
+            break
+        print step
+    return P,Q
+
+# call the function
+(P,Q)=matrixFactorization(userItemRatingMatrix.iloc[:100,:100],K=2,gamma=0.001,lamda=0.02, steps=100)
+
